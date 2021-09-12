@@ -20,9 +20,9 @@ let permanentRegistrarController;
 let migrationLockPeriod;
 let gracePeriod;
 
-const getEthResolver = async () => {
+const getEthResolver = async (tld = 'eth') => {
   const ENS = await getENS();
-  const resolverAddr = await ENS.resolver(getNamehash('eth'));
+  const resolverAddr = await ENS.resolver(getNamehash(tld));
   return getResolverContract(resolverAddr);
 };
 
@@ -31,7 +31,7 @@ const getDeed = async address => {
   return new Contract(address, deedContract, provider);
 };
 
-export const getLegacyAuctionRegistrar = async () => {
+export const getLegacyAuctionRegistrar = async (tld = 'eth') => {
   if (ethRegistrar) {
     return {
       ethRegistrar
@@ -39,16 +39,16 @@ export const getLegacyAuctionRegistrar = async () => {
   }
 
   try {
-    const Resolver = await getEthResolver();
+    const Resolver = await getEthResolver(tld);
     const provider = await getProvider();
-    let legacyAuctionRegistrarAddress = await Resolver.interfaceImplementer(getNamehash('eth'), legacyRegistrarInterfaceId);
+    let legacyAuctionRegistrarAddress = await Resolver.interfaceImplementer(getNamehash(tld), legacyRegistrarInterfaceId);
     ethRegistrar = new Contract(legacyAuctionRegistrarAddress, legacyAuctionRegistrarContract, provider);
     return {
       ethRegistrar
     };
   } catch (e) {}
 };
-export const getPermanentRegistrar = async () => {
+export const getPermanentRegistrar = async (tld = 'eth') => {
   if (permanentRegistrar) {
     return {
       permanentRegistrar
@@ -58,14 +58,14 @@ export const getPermanentRegistrar = async () => {
   try {
     const ENS = await getENS();
     const provider = await getProvider();
-    const ethAddr = await ENS.owner(getNamehash('eth'));
+    const ethAddr = await ENS.owner(getNamehash(tld));
     permanentRegistrar = new Contract(ethAddr, permanentRegistrarContract, provider);
     return {
       permanentRegistrar
     };
   } catch (e) {}
 };
-export const getPermanentRegistrarController = async () => {
+export const getPermanentRegistrarController = async (tld = 'eth') => {
   if (permanentRegistrarController) {
     return {
       permanentRegistrarController
@@ -73,9 +73,9 @@ export const getPermanentRegistrarController = async () => {
   }
 
   try {
-    const Resolver = await getEthResolver();
+    const Resolver = await getEthResolver(tld);
     const provider = await getProvider();
-    let controllerAddress = await Resolver.interfaceImplementer(getNamehash('eth'), permanentRegistrarInterfaceId);
+    let controllerAddress = await Resolver.interfaceImplementer(getNamehash(tld), permanentRegistrarInterfaceId);
     permanentRegistrarController = new Contract(controllerAddress, permanentRegistrarControllerContract, provider);
     return {
       permanentRegistrarController
@@ -85,13 +85,13 @@ export const getPermanentRegistrarController = async () => {
   }
 };
 
-const getLegacyEntry = async (Registrar, name) => {
+const getLegacyEntry = async (Registrar, name, tld = 'eth') => {
   let obj;
 
   try {
     const {
       ethRegistrar: Registrar
-    } = await getLegacyAuctionRegistrar();
+    } = await getLegacyAuctionRegistrar(tld);
     let deedOwner = '0x0';
     const entry = await Registrar.entries(labelhash(name));
 
@@ -241,14 +241,14 @@ const getDNSEntry = async (name, parentOwner, owner) => {
   return dnsRegistrar;
 };
 
-const getEntry = async name => {
+const getEntry = async (name, tld = 'eth') => {
   const [{
     ethRegistrar: AuctionRegistrar
   }, {
     permanentRegistrar: Registrar
   }, {
     permanentRegistrarController: RegistrarController
-  }] = await Promise.all([getLegacyAuctionRegistrar(), getPermanentRegistrar(), getPermanentRegistrarController()]);
+  }] = await Promise.all([getLegacyAuctionRegistrar(tld), getPermanentRegistrar(tld), getPermanentRegistrarController(tld)]);
   let [block, legacyEntry, permEntry] = await Promise.all([getBlock(), getLegacyEntry(AuctionRegistrar, name), getPermanentEntry(Registrar, RegistrarController, name)]);
   let ret = {
     currentBlockDate: new Date(block.timestamp * 1000),
@@ -284,14 +284,14 @@ const getEntry = async name => {
   };
 };
 
-const transferOwner = async (name, to, overrides = {}) => {
+const transferOwner = async (name, to, tld = 'eth', overrides = {}) => {
   try {
     const nameArray = name.split('.');
     const labelHash = labelhash(nameArray[0]);
     const account = await getAccount();
     const {
       permanentRegistrar
-    } = await getPermanentRegistrar();
+    } = await getPermanentRegistrar(tld);
     const signer = await getSigner();
     const Registrar = permanentRegistrar.connect(signer);
     const networkId = await getNetworkId();
@@ -310,13 +310,13 @@ const transferOwner = async (name, to, overrides = {}) => {
   }
 };
 
-const reclaim = async (name, address, overrides = {}) => {
+const reclaim = async (name, address, tld = 'eth', overrides = {}) => {
   try {
     const nameArray = name.split('.');
     const labelHash = labelhash(nameArray[0]);
     const {
       permanentRegistrar
-    } = await getPermanentRegistrar();
+    } = await getPermanentRegistrar(tld);
     const signer = await getSigner();
     const Registrar = permanentRegistrar.connect(signer);
     const networkId = await getNetworkId();
@@ -336,24 +336,24 @@ const reclaim = async (name, address, overrides = {}) => {
   }
 };
 
-const getRentPrice = async (name, duration) => {
+const getRentPrice = async (name, duration, tld = 'eth') => {
   const {
     permanentRegistrarController
-  } = await getPermanentRegistrarController();
+  } = await getPermanentRegistrarController(tld);
   return permanentRegistrarController.rentPrice(name, duration);
 };
 
-const getMinimumCommitmentAge = async () => {
+const getMinimumCommitmentAge = async (tld = 'eth') => {
   const {
     permanentRegistrarController
-  } = await getPermanentRegistrarController();
+  } = await getPermanentRegistrarController(tld);
   return permanentRegistrarController.minCommitmentAge();
 };
 
-const makeCommitment = async (name, owner, secret = '') => {
+const makeCommitment = async (name, owner, secret = '', tld = 'eth') => {
   const {
     permanentRegistrarController: permanentRegistrarControllerWithoutSigner
-  } = await getPermanentRegistrarController();
+  } = await getPermanentRegistrarController(tld);
   const signer = await getSigner();
   const permanentRegistrarController = permanentRegistrarControllerWithoutSigner.connect(signer);
   const account = await getAccount();
@@ -366,7 +366,7 @@ const makeCommitment = async (name, owner, secret = '') => {
   }
 };
 
-const commit = async (label, secret = '') => {
+const commit = async (label, secret = '', tld = 'eth') => {
   const {
     permanentRegistrarController: permanentRegistrarControllerWithoutSigner
   } = await getPermanentRegistrarController();
@@ -377,10 +377,10 @@ const commit = async (label, secret = '') => {
   return permanentRegistrarController.commit(commitment);
 };
 
-const register = async (label, duration, secret) => {
+const register = async (label, duration, secret, tld = 'eth') => {
   const {
     permanentRegistrarController: permanentRegistrarControllerWithoutSigner
-  } = await getPermanentRegistrarController();
+  } = await getPermanentRegistrarController(tld);
   const signer = await getSigner();
   const permanentRegistrarController = permanentRegistrarControllerWithoutSigner.connect(signer);
   const account = await getAccount();
@@ -398,10 +398,10 @@ const register = async (label, duration, secret) => {
   }
 };
 
-const renew = async (label, duration) => {
+const renew = async (label, duration, tld = 'eth') => {
   const {
     permanentRegistrarController: permanentRegistrarControllerWithoutSigner
-  } = await getPermanentRegistrarController();
+  } = await getPermanentRegistrarController(tld);
   const signer = await getSigner();
   const permanentRegistrarController = permanentRegistrarControllerWithoutSigner.connect(signer);
   const price = await getRentPrice(label, duration);
@@ -410,10 +410,10 @@ const renew = async (label, duration) => {
   });
 };
 
-const releaseDeed = async label => {
+const releaseDeed = async (label, tld = 'eth') => {
   const {
     ethRegistrar
-  } = await getLegacyAuctionRegistrar();
+  } = await getLegacyAuctionRegistrar(tld);
   const signer = await getSigner();
   const ethRegistrarWithSigner = ethRegistrar.connect(signer);
   const hash = labelhash(label);

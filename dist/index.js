@@ -1,5 +1,6 @@
 import { setupWeb3 } from './web3';
 import { getENS } from './ens';
+export { utils, ethers } from 'ethers';
 export async function setupENS({
   customProvider,
   ensAddress,

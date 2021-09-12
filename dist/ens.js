@@ -23,6 +23,12 @@ var contracts = {
   },
   5: {
     registry: '0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e'
+  },
+  73799: {
+    registry: '0xd7CeF70Ba7efc2035256d828d5287e2D285CD1ac'
+  },
+  246: {
+    registry: '0x0A6d64413c07E10E890220BBE1c49170080C6Ca0'
   }
 };
 let ENS;
