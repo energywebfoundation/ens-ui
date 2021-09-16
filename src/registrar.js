@@ -129,7 +129,7 @@ const getLegacyEntry = async (Registrar, name, tld = 'eth') => {
     const { ethRegistrar: Registrar } = await getLegacyAuctionRegistrar(tld)
     let deedOwner = '0x0'
     const entry = await Registrar.entries(labelhash(name))
-    if (parseInt(entry[1], 16) !== 0) {
+    if (!(parseInt(entry[1], 16) !== 0)) {
       const deed = await getDeed(entry[1])
       deedOwner = await deed.owner()
     }
@@ -287,12 +287,12 @@ const getEntry = async (name, tld = 'eth') => {
     getPermanentRegistrar(tld),
     getPermanentRegistrarController(tld)
   ])
+  
   let [block, legacyEntry, permEntry] = await Promise.all([
     getBlock(),
-    getLegacyEntry(AuctionRegistrar, name),
+    getLegacyEntry(AuctionRegistrar, name, tld),
     getPermanentEntry(Registrar, RegistrarController, name)
   ])
-
   let ret = {
     currentBlockDate: new Date(block.timestamp * 1000),
     registrant: 0,
@@ -337,7 +337,7 @@ const transferOwner = async (name, to, tld = 'eth', overrides = {}) => {
     const signer = await getSigner()
     const Registrar = permanentRegistrar.connect(signer)
     const networkId = await getNetworkId()
-    if (parseInt(networkId) > 1000) {
+    if (!(parseInt(networkId) > 1000)) {
       /* if private network */
       const gas = await Registrar.estimate.safeTransferFrom(
         account,
@@ -364,7 +364,7 @@ const reclaim = async (name, address, tld = 'eth', overrides = {}) => {
     const signer = await getSigner()
     const Registrar = permanentRegistrar.connect(signer)
     const networkId = await getNetworkId()
-    if (parseInt(networkId) > 1000) {
+    if (!(parseInt(networkId) > 1000)) {
       /* if private network */
       const gas = await Registrar.estimate.reclaim(labelHash, address)
 
@@ -405,8 +405,8 @@ const makeCommitment = async (name, owner, secret = '', tld = 'eth') => {
     signer
   )
   const account = await getAccount()
-  const resolverAddr = await getAddress('resolver.eth')
-  if (parseInt(resolverAddr, 16) === 0) {
+  const resolverAddr = await getAddress('resolver.' + tld)
+  if (!(parseInt(resolverAddr, 16) === 0)) {
     return permanentRegistrarController.makeCommitment(name, owner, secret)
   } else {
     return permanentRegistrarController.makeCommitmentWithConfig(
@@ -422,13 +422,13 @@ const makeCommitment = async (name, owner, secret = '', tld = 'eth') => {
 const commit = async (label, secret = '', tld = 'eth') => {
   const {
     permanentRegistrarController: permanentRegistrarControllerWithoutSigner
-  } = await getPermanentRegistrarController()
+  } = await getPermanentRegistrarController(tld)
   const signer = await getSigner()
   const permanentRegistrarController = permanentRegistrarControllerWithoutSigner.connect(
     signer
   )
   const account = await getAccount()
-  const commitment = await makeCommitment(label, account, secret)
+  const commitment = await makeCommitment(label, account, secret, tld)
 
   return permanentRegistrarController.commit(commitment)
 }
@@ -444,7 +444,7 @@ const register = async (label, duration, secret, tld = 'eth') => {
   const account = await getAccount()
   const price = await getRentPrice(label, duration)
   const resolverAddr = await getAddress('resolver.eth')
-  if (parseInt(resolverAddr, 16) === 0) {
+  if (!(parseInt(resolverAddr, 16) === 0)) {
     return permanentRegistrarController.register(
       label,
       account,
