@@ -1,5 +1,5 @@
 {
-  "name": "@ensdomains/ui",
+  "name": "@energywebfoundation/ui",
   "version": "2.0.12",
   "description": "UI components and reusable code",
   "main": "src/index.js",
@@ -12,7 +12,7 @@
     "build": "babel src -d dist --ignore src/**/*.test.js,**/__tests__/**,src/testing-utils",
     "prepublishOnly": "yarn build",
     "pub": "yarn publish",
-    "link": "yarn build && rm ~/.config/yarn/link/@ensdomains/ui && yarn link"
+    "link": "yarn build && yarn link"
   },
   "author": "",
   "license": "ISC",
