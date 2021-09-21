@@ -94,7 +94,7 @@ const parseSearchTerm = term => {
     const tld = term.match(regex) ? term.match(regex)[0] : '';
 
     if (tlds[tld] && tlds[tld].supported) {
-      if (tld === 'eth' && termArray[termArray.length - 2].length < 3) {
+      if (tld === 'ewc' && termArray[termArray.length - 2].length < 3) {
         return 'short';
       }
 

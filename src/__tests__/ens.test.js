@@ -90,7 +90,7 @@ describe('Blockchain tests', () => {
     test('ens registry, resolver and reverse registrar deployed', async () => {
       const ENS = await getENS()
 
-      const eth = getNamehash('eth')
+      const eth = getNamehash('ewc')
       const ethOwner = await ENS.owner(eth)
       expect(ethOwner).toBe(baseRegistrar)
 
@@ -230,7 +230,7 @@ describe('Blockchain tests', () => {
     })
 
     test('getAddr returns an eth address', async () => {
-      const addr = await getAddress('resolver.eth', 'ETH')
+      const addr = await getAddress('resolver.eth', 'ewc')
       expect(addr).toBeHex()
       expect(addr).toBeEthAddress()
       expect(addr).not.toBe('0x0000000000000000000000000000000000000000')

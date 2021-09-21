@@ -20,7 +20,7 @@ let permanentRegistrarController;
 let migrationLockPeriod;
 let gracePeriod;
 
-const getEthResolver = async (tld = 'eth') => {
+const getEthResolver = async (tld = 'ewc') => {
   const ENS = await getENS();
   const resolverAddr = await ENS.resolver(getNamehash(tld));
   return getResolverContract(resolverAddr);
@@ -31,7 +31,7 @@ const getDeed = async address => {
   return new Contract(address, deedContract, provider);
 };
 
-export const getLegacyAuctionRegistrar = async (tld = 'eth') => {
+export const getLegacyAuctionRegistrar = async (tld = 'ewc') => {
   if (ethRegistrar) {
     return {
       ethRegistrar
@@ -48,7 +48,7 @@ export const getLegacyAuctionRegistrar = async (tld = 'eth') => {
     };
   } catch (e) {}
 };
-export const getPermanentRegistrar = async (tld = 'eth') => {
+export const getPermanentRegistrar = async (tld = 'ewc') => {
   if (permanentRegistrar) {
     return {
       permanentRegistrar
@@ -65,7 +65,7 @@ export const getPermanentRegistrar = async (tld = 'eth') => {
     };
   } catch (e) {}
 };
-export const getPermanentRegistrarController = async (tld = 'eth') => {
+export const getPermanentRegistrarController = async (tld = 'ewc') => {
   if (permanentRegistrarController) {
     return {
       permanentRegistrarController
@@ -85,7 +85,7 @@ export const getPermanentRegistrarController = async (tld = 'eth') => {
   }
 };
 
-const getLegacyEntry = async (Registrar, name, tld = 'eth') => {
+const getLegacyEntry = async (Registrar, name, tld = 'ewc') => {
   let obj;
 
   try {
@@ -241,7 +241,7 @@ const getDNSEntry = async (name, parentOwner, owner) => {
   return dnsRegistrar;
 };
 
-const getEntry = async (name, tld = 'eth') => {
+const getEntry = async (name, tld = 'ewc') => {
   const [{
     ethRegistrar: AuctionRegistrar
   }, {
@@ -284,7 +284,7 @@ const getEntry = async (name, tld = 'eth') => {
   };
 };
 
-const transferOwner = async (name, to, tld = 'eth', overrides = {}) => {
+const transferOwner = async (name, to, tld = 'ewc', overrides = {}) => {
   try {
     const nameArray = name.split('.');
     const labelHash = labelhash(nameArray[0]);
@@ -310,7 +310,7 @@ const transferOwner = async (name, to, tld = 'eth', overrides = {}) => {
   }
 };
 
-const reclaim = async (name, address, tld = 'eth', overrides = {}) => {
+const reclaim = async (name, address, tld = 'ewc', overrides = {}) => {
   try {
     const nameArray = name.split('.');
     const labelHash = labelhash(nameArray[0]);
@@ -336,21 +336,21 @@ const reclaim = async (name, address, tld = 'eth', overrides = {}) => {
   }
 };
 
-const getRentPrice = async (name, duration, tld = 'eth') => {
+const getRentPrice = async (name, duration, tld = 'ewc') => {
   const {
     permanentRegistrarController
   } = await getPermanentRegistrarController(tld);
   return permanentRegistrarController.rentPrice(name, duration);
 };
 
-const getMinimumCommitmentAge = async (tld = 'eth') => {
+const getMinimumCommitmentAge = async (tld = 'ewc') => {
   const {
     permanentRegistrarController
   } = await getPermanentRegistrarController(tld);
   return permanentRegistrarController.minCommitmentAge();
 };
 
-const makeCommitment = async (name, owner, secret = '', tld = 'eth') => {
+const makeCommitment = async (name, owner, secret = '', tld = 'ewc') => {
   const {
     permanentRegistrarController: permanentRegistrarControllerWithoutSigner
   } = await getPermanentRegistrarController(tld);
@@ -366,7 +366,7 @@ const makeCommitment = async (name, owner, secret = '', tld = 'eth') => {
   }
 };
 
-const commit = async (label, secret = '', tld = 'eth') => {
+const commit = async (label, secret = '', tld = 'ewc') => {
   const {
     permanentRegistrarController: permanentRegistrarControllerWithoutSigner
   } = await getPermanentRegistrarController(tld);
@@ -377,7 +377,7 @@ const commit = async (label, secret = '', tld = 'eth') => {
   return permanentRegistrarController.commit(commitment);
 };
 
-const register = async (label, duration, secret, tld = 'eth') => {
+const register = async (label, duration, secret, tld = 'ewc') => {
   const {
     permanentRegistrarController: permanentRegistrarControllerWithoutSigner
   } = await getPermanentRegistrarController(tld);
@@ -398,7 +398,7 @@ const register = async (label, duration, secret, tld = 'eth') => {
   }
 };
 
-const renew = async (label, duration, tld = 'eth') => {
+const renew = async (label, duration, tld = 'ewc') => {
   const {
     permanentRegistrarController: permanentRegistrarControllerWithoutSigner
   } = await getPermanentRegistrarController(tld);
@@ -410,7 +410,7 @@ const renew = async (label, duration, tld = 'eth') => {
   });
 };
 
-const releaseDeed = async (label, tld = 'eth') => {
+const releaseDeed = async (label, tld = 'ewc') => {
   const {
     ethRegistrar
   } = await getLegacyAuctionRegistrar(tld);
