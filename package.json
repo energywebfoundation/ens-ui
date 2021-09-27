@@ -1,5 +1,5 @@
 {
-  "name": "@energywebfoundation/ui",
+  "name": "@energywebfoundation/ens-ui",
   "version": "2.0.12",
   "description": "UI components and reusable code",
   "main": "src/index.js",
