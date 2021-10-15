@@ -50,10 +50,15 @@ export async function setupWeb3({
   if (window && window.ethereum) {
     provider = new ethers.providers.Web3Provider(window.ethereum)
     signer = provider.getSigner()
+    
     if (window.ethereum.on && reloadOnAccountsChange) {
       window.ethereum.on('accountsChanged', async function(accounts) {
-        const address = await signer.getAddress()
-        if (accounts[0] !== address) {
+        try {
+          const address = await signer.getAddress()
+          if (accounts[0] !== address) {
+            window.location.reload()
+          }
+        } catch (error) {
           window.location.reload()
         }
       })
