@@ -1,26 +1,64 @@
-import { ethers } from 'ethers'
 import { IFrameEthereumProvider } from '@ethvault/iframe-provider'
+import { ethers } from 'ethers'
 
 let provider
 let signer
 let readOnly = false
 let requested = false
+let address
+
+function getJsonRpcProvider(providerOrUrl, option = 'any') {
+  return new ethers.providers.JsonRpcProvider(providerOrUrl, option)
+}
+
+function getWeb3Provider(providerOrUrl, option = 'any') {
+  return new ethers.providers.Web3Provider(providerOrUrl, option)
+}
 
 export async function setupWeb3({
   customProvider,
-  reloadOnAccountsChange = false
+  reloadOnAccountsChange = false,
+  enforceReadOnly = false,
+  enforceReload = false,
+  ensAddress
 }) {
+  if (!customProvider) {
+    throw new Error('Provider required to setup web3')
+  }
+
+  if (enforceReload) {
+    provider = null
+    readOnly = false
+    address = null
+  }
+
+  if (enforceReadOnly) {
+    readOnly = true
+    address = null
+    provider = getJsonRpcProvider(customProvider)
+    return { provider, signer: undefined }
+  }
+
   if (provider) {
     return { provider, signer }
   }
+
   if (customProvider) {
     if (typeof customProvider === 'string') {
       // handle raw RPC endpoint URL
-      provider = new ethers.providers.JsonRpcProvider(customProvider)
+      if (customProvider.match(/localhost/) && ensAddress) {
+        provider = getJsonRpcProvider(customProvider, {
+          chainId: 1337,
+          name: 'unknown',
+          ensAddress
+        })
+      } else {
+        provider = getJsonRpcProvider(customProvider)
+      }
       signer = provider.getSigner()
     } else {
       // handle EIP 1193 provider
-      provider = new ethers.providers.Web3Provider(customProvider)
+      provider = getWeb3Provider(customProvider)
     }
     return { provider, signer }
   }
@@ -48,11 +86,11 @@ export async function setupWeb3({
   }
 
   if (window && window.ethereum) {
-    provider = new ethers.providers.Web3Provider(window.ethereum)
+    provider = getWeb3Provider(window.ethereum)
     signer = provider.getSigner()
-    
     if (window.ethereum.on && reloadOnAccountsChange) {
-      window.ethereum.on('accountsChanged', async function(accounts) {
+      address = await signer.getAddress()
+      window.ethereum.on('accountsChanged', async function (accounts) {
         try {
           const address = await signer.getAddress()
           if (accounts[0] !== address) {
@@ -65,7 +103,7 @@ export async function setupWeb3({
     }
     return { provider, signer }
   } else if (window.web3 && window.web3.currentProvider) {
-    provider = new ethers.providers.Web3Provider(window.web3.currentProvider)
+    provider = getWeb3Provider(window.web3.currentProvider)
     const id = (await provider.getNetwork()).chainId
     signer = provider.getSigner()
     return { provider, signer }
@@ -74,7 +112,7 @@ export async function setupWeb3({
       const url = 'http://localhost:8545'
       await fetch(url)
       console.log('local node active')
-      provider = new ethers.providers.JsonRpcProvider(url)
+      provider = getJsonRpcProvider(url)
     } catch (error) {
       if (
         error.readyState === 4 &&
@@ -83,12 +121,9 @@ export async function setupWeb3({
         // the endpoint is active
         console.log('Success')
       } else {
-        console.log(
+        throw new Error(
           'No web3 instance injected. Falling back to cloud provider.'
         )
-        readOnly = true
-        provider = new ethers.getDefaultProvider('homestead')
-        return { provider, signer }
       }
     }
   }
@@ -114,21 +149,6 @@ export async function getWeb3Read() {
 
 export function isReadOnly() {
   return readOnly
-}
-
-function getNetworkProviderUrl(id) {
-  switch (id) {
-    case '1':
-      return `https://mainnet.infura.io/v3/90f210707d3c450f847659dc9a3436ea`
-    case '3':
-      return `https://ropsten.infura.io/v3/90f210707d3c450f847659dc9a3436ea`
-    case '4':
-      return `https://rinkeby.infura.io/v3/90f210707d3c450f847659dc9a3436ea`
-    case '5':
-      return `https://goerli.infura.io/v3/90f210707d3c450f847659dc9a3436ea`
-    default:
-      return 'private'
-  }
 }
 
 export async function getProvider() {
@@ -197,11 +217,16 @@ export async function getNetworkId() {
   return network.chainId
 }
 
-export async function getBlock() {
+export async function getNetwork() {
+  const provider = await getWeb3()
+  const network = await provider.getNetwork()
+  return network
+}
+
+export async function getBlock(number = 'latest') {
   try {
     const provider = await getWeb3()
-    const block = await provider.getBlockNumber()
-    const blockDetails = await provider.getBlock(block)
+    const blockDetails = await provider.getBlock(number)
     return {
       number: blockDetails.number,
       timestamp: blockDetails.timestamp

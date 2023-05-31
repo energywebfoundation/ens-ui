@@ -1,5 +1,7 @@
+
+import { tlds } from '../constants/tlds'
 import { getNetworkId } from '../web3'
-import { addressUtils } from '@0xproject/utils'
+import { addressUtils } from '@0xproject/utils/lib/src/address_utils'
 
 import {
   isEncodedLabelhash,
@@ -11,20 +13,13 @@ import {
 import {
   encodeContenthash,
   decodeContenthash,
-  isValidContenthash
+  isValidContenthash,
+  getProtocolType
 } from './contents'
-import { tlds } from '../constants/tlds'
-import { normalize } from 'eth-ens-namehash'
+import { normalize } from '@ensdomains/eth-ens-namehash'
 import { namehash } from './namehash'
 
-//import { checkLabelHash } from '../updaters/preImageDB'
-
-const uniq = (a, param) =>
-  a.filter(
-    (item, pos) => a.map(mapItem => mapItem[param]).indexOf(item[param]) === pos
-  )
-
-const checkLabels = (...labelHashes) => labelHashes.map(hash => null)
+const uniq = (a) => a.filter((item, index) => a.indexOf(item) === index)
 
 async function getEtherScanAddr() {
   const networkId = await getNetworkId()
@@ -43,7 +38,7 @@ async function getEtherScanAddr() {
   }
 }
 
-async function ensStartBlock() {
+async function getEnsStartBlock() {
   const networkId = await getNetworkId()
   switch (networkId) {
     case 1:
@@ -57,18 +52,19 @@ async function ensStartBlock() {
   }
 }
 
-// export const checkLabels = (...labelHashes) =>
-//   labelHashes.map(labelHash => checkLabelHash(labelHash) || null)
-
 const mergeLabels = (labels1, labels2) =>
   labels1.map((label, index) => (label ? label : labels2[index]))
 
 function validateName(name) {
   const nameArray = name.split('.')
-  const hasEmptyLabels = nameArray.filter(e => e.length < 1).length > 0
+  const hasEmptyLabels = nameArray.some((label) => label.length == 0)
   if (hasEmptyLabels) throw new Error('Domain cannot have empty labels')
-  const normalizedArray = nameArray.map(label => {
-    return isEncodedLabelhash(label) ? label : normalize(label)
+  const normalizedArray = nameArray.map((label) => {
+    if (label === '[root]') {
+      return label
+    } else {
+      return isEncodedLabelhash(label) ? label : normalize(label)
+    }
   })
   try {
     return normalizedArray.join('.')
@@ -89,7 +85,8 @@ function isLabelValid(name) {
   }
 }
 
-const parseSearchTerm = term => {
+const parseSearchTerm = (term, validTld) => {
+  console.log(term, validTld)
   let regex = /[^.]+$/
 
   try {
@@ -101,9 +98,9 @@ const parseSearchTerm = term => {
   if (term.indexOf('.') !== -1) {
     const termArray = term.split('.')
     const tld = term.match(regex) ? term.match(regex)[0] : ''
-
-    if (tlds[tld] && tlds[tld].supported) {
-      if ((tld === 'ewc' || tld === 'eth') && termArray[termArray.length - 2].length < 3) {
+    if (validTld) {
+      if ((tld === 'ewc' || tld === 'eth') && [...termArray[termArray.length - 2]].length < 3) {
+        // code-point length
         return 'short'
       }
       return 'supported'
@@ -114,7 +111,7 @@ const parseSearchTerm = term => {
     return 'address'
   } else {
     //check if the search term is actually a tld
-    if (Object.keys(tlds).filter(tld => term === tld).length > 0) {
+    if (validTld) {
       return 'tld'
     }
     return 'search'
@@ -128,9 +125,7 @@ export {
   uniq,
   emptyAddress,
   getEtherScanAddr,
-  ensStartBlock,
-  checkLabels,
-  mergeLabels,
+  getEnsStartBlock,
   // name validation
   validateName,
   parseSearchTerm,
@@ -146,5 +141,6 @@ export {
   // contents utils
   encodeContenthash,
   decodeContenthash,
-  isValidContenthash
+  isValidContenthash,
+  getProtocolType
 }
