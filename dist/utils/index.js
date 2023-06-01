@@ -1,14 +1,12 @@
-import { getNetworkId } from '../web3';
-import { addressUtils } from '@0xproject/utils';
-import { isEncodedLabelhash, isDecrypted, decodeLabelhash, encodeLabelhash, labelhash } from './labelhash';
-import { encodeContenthash, decodeContenthash, isValidContenthash } from './contents';
 import { tlds } from '../constants/tlds';
-import { normalize } from 'eth-ens-namehash';
-import { namehash } from './namehash'; //import { checkLabelHash } from '../updaters/preImageDB'
+import { getNetworkId } from '../web3';
+import { addressUtils } from '@0xproject/utils/lib/src/address_utils';
+import { isEncodedLabelhash, isDecrypted, decodeLabelhash, encodeLabelhash, labelhash } from './labelhash';
+import { encodeContenthash, decodeContenthash, isValidContenthash, getProtocolType } from './contents';
+import { normalize } from '@ensdomains/eth-ens-namehash';
+import { namehash } from './namehash';
 
-const uniq = (a, param) => a.filter((item, pos) => a.map(mapItem => mapItem[param]).indexOf(item[param]) === pos);
-
-const checkLabels = (...labelHashes) => labelHashes.map(hash => null);
+const uniq = a => a.filter((item, index) => a.indexOf(item) === index);
 
 async function getEtherScanAddr() {
   const networkId = await getNetworkId();
@@ -31,7 +29,7 @@ async function getEtherScanAddr() {
   }
 }
 
-async function ensStartBlock() {
+async function getEnsStartBlock() {
   const networkId = await getNetworkId();
 
   switch (networkId) {
@@ -46,18 +44,20 @@ async function ensStartBlock() {
     default:
       return 0;
   }
-} // export const checkLabels = (...labelHashes) =>
-//   labelHashes.map(labelHash => checkLabelHash(labelHash) || null)
-
+}
 
 const mergeLabels = (labels1, labels2) => labels1.map((label, index) => label ? label : labels2[index]);
 
 function validateName(name) {
   const nameArray = name.split('.');
-  const hasEmptyLabels = nameArray.filter(e => e.length < 1).length > 0;
+  const hasEmptyLabels = nameArray.some(label => label.length == 0);
   if (hasEmptyLabels) throw new Error('Domain cannot have empty labels');
   const normalizedArray = nameArray.map(label => {
-    return isEncodedLabelhash(label) ? label : normalize(label);
+    if (label === '[root]') {
+      return label;
+    } else {
+      return isEncodedLabelhash(label) ? label : normalize(label);
+    }
   });
 
   try {
@@ -80,7 +80,8 @@ function isLabelValid(name) {
   }
 }
 
-const parseSearchTerm = term => {
+const parseSearchTerm = (term, validTld) => {
+  console.log(term, validTld);
   let regex = /[^.]+$/;
 
   try {
@@ -93,8 +94,9 @@ const parseSearchTerm = term => {
     const termArray = term.split('.');
     const tld = term.match(regex) ? term.match(regex)[0] : '';
 
-    if (tlds[tld] && tlds[tld].supported) {
-      if ((tld === 'ewc' || tld === 'eth') && termArray[termArray.length - 2].length < 3) {
+    if (validTld) {
+      if ((tld === 'ewc' || tld === 'eth') && [...termArray[termArray.length - 2]].length < 3) {
+        // code-point length
         return 'short';
       }
 
@@ -106,7 +108,7 @@ const parseSearchTerm = term => {
     return 'address';
   } else {
     //check if the search term is actually a tld
-    if (Object.keys(tlds).filter(tld => term === tld).length > 0) {
+    if (validTld) {
       return 'tld';
     }
 
@@ -116,8 +118,8 @@ const parseSearchTerm = term => {
 
 const emptyAddress = '0x0000000000000000000000000000000000000000';
 export { // general utils
-uniq, emptyAddress, getEtherScanAddr, ensStartBlock, checkLabels, mergeLabels, // name validation
+uniq, emptyAddress, getEtherScanAddr, getEnsStartBlock, // name validation
 validateName, parseSearchTerm, isLabelValid, // labelhash utils
 labelhash, isEncodedLabelhash, isDecrypted, decodeLabelhash, encodeLabelhash, // namehash utils
 namehash, // contents utils
-encodeContenthash, decodeContenthash, isValidContenthash };
+encodeContenthash, decodeContenthash, isValidContenthash, getProtocolType };

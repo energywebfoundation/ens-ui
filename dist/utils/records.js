@@ -32,7 +32,7 @@ export function getPlaceholder(recordType, contentType) {
 
     case 'content':
       if (contentType === 'contenthash') {
-        return 'Enter a content hash (eg: ipfs://..., bzz://..., onion://..., onion3://...)';
+        return 'Enter a content hash (eg: ipfs://..., bzz://..., onion://..., onion3://..., sia://..., ar://...)';
       } else {
         return 'Enter a content';
       }

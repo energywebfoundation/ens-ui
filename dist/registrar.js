@@ -1,443 +1,689 @@
-import { getENS, getNamehash, getResolverContract, getDnsRegistrarContract } from './ens';
-import { getWeb3Read, getAccount, getBlock, getProvider, getSigner, getNetworkId } from './web3';
-import { getAddress } from './registry';
-import { Contract } from 'ethers';
-import { abi as legacyAuctionRegistrarContract } from '@ensdomains/ens/build/contracts/HashRegistrar';
-import { abi as deedContract } from '@ensdomains/ens/build/contracts/Deed';
-import { abi as permanentRegistrarContract } from '@ensdomains/ethregistrar/build/contracts/BaseRegistrarImplementation';
-import { abi as permanentRegistrarControllerContract } from '@ensdomains/ethregistrar/build/contracts/ETHRegistrarController';
+import { utils } from 'ethers';
 import { interfaces } from './constants/interfaces';
+import { getBulkRenewalContract, getDeedContract, getDnsRegistrarContract, getENSContract, getLegacyAuctionContract, getOldDnsRegistrarContract, getPermanentRegistrarContract, getPermanentRegistrarControllerContract, getResolverContract, getTestRegistrarContract, getOracleContract } from './contracts';
+import DNSRegistrarJS from './dnsregistrar';
 import { isEncodedLabelhash, labelhash } from './utils/labelhash';
-import DNSRegistrarJS from '@ensdomains/dnsregistrar';
+import { namehash } from './utils/namehash';
+import { getAccount, getBlock, getNetworkId, getProvider, getSigner } from './web3';
 const {
   legacyRegistrar: legacyRegistrarInterfaceId,
-  permanentRegistrar: permanentRegistrarInterfaceId
-} = interfaces;
-let ethRegistrar;
-let dnsRegistrar;
-let permanentRegistrar;
-let permanentRegistrarController;
-let migrationLockPeriod;
-let gracePeriod;
+  permanentRegistrar: permanentRegistrarInterfaceId,
+  bulkRenewal: bulkRenewalInterfaceId,
+  dnsRegistrar: dnsRegistrarInterfaceId,
+  dnssecClaimOld: dnssecClaimOldId,
+  dnssecClaimNew: dnssecClaimNewId
+} = interfaces; // Renewal seem failing as it's not correctly estimating gas to return when buffer exceeds the renewal cost
 
-const getEthResolver = async (tld = 'ewc') => {
-  const ENS = await getENS();
-  const resolverAddr = await ENS.resolver(getNamehash(tld));
-  return getResolverContract(resolverAddr);
-};
+const transferGasCost = 21000;
 
-const getDeed = async address => {
-  const provider = await getProvider();
-  return new Contract(address, deedContract, provider);
-};
+function checkArguments({
+  registryAddress,
+  ethAddress,
+  legacyAuctionRegistrarAddress,
+  provider
+}) {
+  if (!registryAddress) throw 'No registry address given to Registrar class';
+  if (!legacyAuctionRegistrarAddress) throw 'No legacy auction address given to Registrar class';
+  if (!ethAddress) throw 'No .eth address given to Registrar class';
+  if (!provider) throw 'Provider is required for Registrar';
+  return;
+} // Add 10% buffer to handle price fructuation.
+// Any unused value will be sent back by the smart contract.
 
-export const getLegacyAuctionRegistrar = async (tld = 'ewc') => {
-  if (ethRegistrar) {
-    return {
-      ethRegistrar
-    };
+
+function getBufferedPrice(price) {
+  return price.mul(110).div(100);
+}
+
+export default class Registrar {
+  constructor({
+    registryAddress,
+    ethAddress,
+    legacyAuctionRegistrarAddress,
+    controllerAddress,
+    bulkRenewalAddress,
+    provider
+  }) {
+    checkArguments({
+      registryAddress,
+      ethAddress,
+      legacyAuctionRegistrarAddress,
+      provider
+    });
+    const permanentRegistrar = getPermanentRegistrarContract({
+      address: ethAddress,
+      provider
+    });
+    const permanentRegistrarController = getPermanentRegistrarControllerContract({
+      address: controllerAddress,
+      provider
+    });
+    const legacyAuctionRegistrar = getLegacyAuctionContract({
+      address: legacyAuctionRegistrarAddress,
+      provider
+    });
+    const bulkRenewal = getBulkRenewalContract({
+      address: bulkRenewalAddress,
+      provider
+    });
+    const ENS = getENSContract({
+      address: registryAddress,
+      provider
+    });
+    this.permanentRegistrar = permanentRegistrar;
+    this.permanentRegistrarController = permanentRegistrarController;
+    this.legacyAuctionRegistrar = legacyAuctionRegistrar;
+    this.registryAddress = registryAddress;
+    this.bulkRenewal = bulkRenewal;
+    this.ENS = ENS;
   }
 
-  try {
-    const Resolver = await getEthResolver(tld);
+  async getAddress(name) {
     const provider = await getProvider();
-    let legacyAuctionRegistrarAddress = await Resolver.interfaceImplementer(getNamehash(tld), legacyRegistrarInterfaceId);
-    ethRegistrar = new Contract(legacyAuctionRegistrarAddress, legacyAuctionRegistrarContract, provider);
-    return {
-      ethRegistrar
-    };
-  } catch (e) {}
-};
-export const getPermanentRegistrar = async (tld = 'ewc') => {
-  if (permanentRegistrar) {
-    return {
-      permanentRegistrar
-    };
+    const hash = namehash(name);
+    const resolverAddr = await this.ENS.resolver(hash);
+    const Resolver = getResolverContract({
+      address: resolverAddr,
+      provider
+    });
+    return Resolver['addr(bytes32)'](hash);
   }
 
-  try {
-    const ENS = await getENS();
+  async getText(name, key) {
     const provider = await getProvider();
-    const ethAddr = await ENS.owner(getNamehash(tld));
-    permanentRegistrar = new Contract(ethAddr, permanentRegistrarContract, provider);
-    return {
-      permanentRegistrar
-    };
-  } catch (e) {}
-};
-export const getPermanentRegistrarController = async (tld = 'ewc') => {
-  if (permanentRegistrarController) {
-    return {
-      permanentRegistrarController
-    };
+    const hash = namehash(name);
+    const resolverAddr = await this.ENS.resolver(hash);
+    const Resolver = getResolverContract({
+      address: resolverAddr,
+      provider
+    });
+    return Resolver.text(hash, key);
   }
 
-  try {
-    const Resolver = await getEthResolver(tld);
+  async getDeed(address) {
     const provider = await getProvider();
-    let controllerAddress = await Resolver.interfaceImplementer(getNamehash(tld), permanentRegistrarInterfaceId);
-    permanentRegistrarController = new Contract(controllerAddress, permanentRegistrarControllerContract, provider);
-    return {
-      permanentRegistrarController
-    };
-  } catch (e) {
-    console.log('error getting permanent registrar controller', e);
+    return getDeedContract({
+      address,
+      provider
+    });
   }
-};
 
-const getLegacyEntry = async (Registrar, name, tld = 'ewc') => {
-  let obj;
+  async getOracle(address) {
+    const provider = await getProvider();
+    return getOracleContract({
+      address,
+      provider
+    });
+  }
 
-  try {
+  async getLegacyEntry(label) {
+    let legacyEntry;
+
+    try {
+      const Registrar = this.legacyAuctionRegistrar;
+      let deedOwner = '0x0';
+      const entry = await Registrar.entries(labelhash(label));
+
+      if (parseInt(entry[1], 16) !== 0) {
+        const deed = await this.getDeed(entry[1]);
+        deedOwner = await deed.owner();
+      }
+
+      legacyEntry = {
+        deedOwner,
+        // TODO: Display "Release" button if deedOwner is not 0x0
+        state: parseInt(entry[0]),
+        registrationDate: parseInt(entry[2]) * 1000,
+        revealDate: (parseInt(entry[2]) - 24 * 2 * 60 * 60) * 1000,
+        value: parseInt(entry[3]),
+        highestBid: parseInt(entry[4])
+      };
+    } catch (e) {
+      legacyEntry = {
+        deedOwner: '0x0',
+        state: 0,
+        registrationDate: 0,
+        revealDate: 0,
+        value: 0,
+        highestBid: 0,
+        expiryTime: 0,
+        error: e.message
+      };
+    }
+
+    return legacyEntry;
+  }
+
+  async getPermanentEntry(label) {
     const {
-      ethRegistrar: Registrar
-    } = await getLegacyAuctionRegistrar(tld);
-    let deedOwner = '0x0';
-    const entry = await Registrar.entries(labelhash(name));
-
-    if (!(parseInt(entry[1], 16) !== 0)) {
-      const deed = await getDeed(entry[1]);
-      deedOwner = await deed.owner();
-    }
-
-    obj = {
-      deedOwner,
-      // TODO: Display "Release" button if deedOwner is not 0x0
-      state: parseInt(entry[0]),
-      registrationDate: parseInt(entry[2]) * 1000,
-      revealDate: (parseInt(entry[2]) - 24 * 2 * 60 * 60) * 1000,
-      value: parseInt(entry[3]),
-      highestBid: parseInt(entry[4])
+      permanentRegistrar: Registrar,
+      permanentRegistrarController: RegistrarController
+    } = this;
+    let getAvailable;
+    let ret = {
+      available: null,
+      nameExpires: null
     };
-  } catch (e) {
-    obj = {
-      deedOwner: '0x0',
-      state: 0,
-      registrationDate: 0,
-      revealDate: 0,
-      value: 0,
-      highestBid: 0,
-      expiryTime: 0,
-      error: e.message
-    };
-  }
 
-  return obj;
-}; // Caching because they are constant
+    try {
+      const labelHash = labelhash(label); // Returns true if name is available
 
-
-async function getGracePeriod(Registrar) {
-  if (!gracePeriod) {
-    return Registrar.GRACE_PERIOD();
-  }
-
-  return gracePeriod;
-}
-
-async function getOwnerOf(Registrar, labelHash) {
-  try {
-    return Registrar.ownerOf(labelHash);
-  } catch {
-    return '0x0';
-  }
-}
-
-const getPermanentEntry = async (Registrar, RegistrarController, label) => {
-  let getAvailable;
-  let obj = {
-    available: null,
-    nameExpires: null
-  };
-
-  try {
-    const labelHash = labelhash(label); // Returns true if name is available
-
-    if (isEncodedLabelhash(label)) {
-      getAvailable = Registrar.available(labelHash);
-    } else {
-      getAvailable = RegistrarController.available(label);
-    }
-
-    const [available, nameExpires, gracePeriod] = await Promise.all([getAvailable, Registrar.nameExpires(labelHash), getGracePeriod(Registrar)]);
-    obj = { ...obj,
-      available,
-      gracePeriod,
-      nameExpires: nameExpires > 0 ? new Date(nameExpires * 1000) : null
-    }; // Returns registrar address if owned by new registrar.
-    // Keep it as a separate call as this will throw exception for non existing domains
-
-    obj.ownerOf = await Registrar.ownerOf(labelHash);
-  } catch (e) {
-    console.log('Error getting permanent registrar entry', e);
-    return false;
-  } finally {
-    return obj;
-  }
-};
-
-const isDNSRegistrar = async name => {
-  // Keep it until new registrar contract with supportsInterface function is deployed into mainnet
-  return name === 'xyz' || name === 'art'; // const { registrar } = await getDnsRegistrarContract(name)
-  // let isDNSSECSupported = false
-  // try {
-  //   isDNSSECSupported = await registrar
-  //     .supportsInterface(dnsRegistrarInterfaceId)
-  // } catch (e) {
-  //   console.log({e})
-  // }
-  // return isDNSSECSupported
-};
-
-const getDNSEntry = async (name, parentOwner, owner) => {
-  // Do not cache as it needs to be refetched on "Refresh"
-  dnsRegistrar = {};
-  const web3 = await getWeb3Read();
-  const provider = web3._web3Provider;
-  const registrarjs = new DNSRegistrarJS(provider, parentOwner);
-
-  try {
-    const claim = await registrarjs.claim(name);
-    const result = claim.getResult();
-    dnsRegistrar.claim = claim;
-    dnsRegistrar.result = result;
-
-    if (result.found) {
-      const proofs = result.proofs;
-      dnsRegistrar.dnsOwner = claim.getOwner();
-
-      if (!dnsRegistrar.dnsOwner) {
-        // DNS Record is invalid
-        dnsRegistrar.state = 4;
+      if (isEncodedLabelhash(label)) {
+        getAvailable = Registrar.available(labelHash);
       } else {
-        // Valid reacord is found
-        if (!owner || dnsRegistrar.dnsOwner.toLowerCase() === owner.toLowerCase()) {
-          dnsRegistrar.state = 5; // Out of sync
+        getAvailable = RegistrarController.available(label);
+      }
+
+      const [available, nameExpires, gracePeriod] = await Promise.all([getAvailable, Registrar.nameExpires(labelHash), this.getGracePeriod(Registrar)]);
+      ret = { ...ret,
+        available,
+        gracePeriod,
+        nameExpires: nameExpires > 0 ? new Date(nameExpires * 1000) : null
+      }; // Returns registrar address if owned by new registrar.
+      // Keep it as a separate call as this will throw exception for non existing domains
+
+      ret.ownerOf = await Registrar.ownerOf(labelHash);
+    } catch (e) {
+      return false;
+    } finally {
+      return ret;
+    }
+  }
+
+  async getEntry(label) {
+    let [block, legacyEntry, permEntry] = await Promise.all([getBlock(), this.getLegacyEntry(label), this.getPermanentEntry(label)]);
+    let ret = {
+      currentBlockDate: new Date(block.timestamp * 1000),
+      registrant: 0,
+      transferEndDate: null,
+      isNewRegistrar: false,
+      gracePeriodEndDate: null
+    };
+
+    if (permEntry) {
+      ret.available = permEntry.available;
+
+      if (permEntry.nameExpires) {
+        ret.expiryTime = permEntry.nameExpires;
+      }
+
+      if (permEntry.ownerOf) {
+        ret.registrant = permEntry.ownerOf;
+        ret.isNewRegistrar = true;
+      } else if (permEntry.nameExpires) {
+        const currentTime = new Date(ret.currentBlockDate);
+        const gracePeriodEndDate = new Date(permEntry.nameExpires.getTime() + permEntry.gracePeriod * 1000); // It is within grace period
+
+        if (permEntry.nameExpires < currentTime < gracePeriodEndDate) {
+          ret.isNewRegistrar = true;
+          ret.gracePeriodEndDate = gracePeriodEndDate;
+        }
+      }
+    }
+
+    return { ...legacyEntry,
+      ...ret
+    };
+  }
+
+  async getGracePeriod(Registrar) {
+    if (!this.gracePeriod) {
+      this.gracePeriod = await Registrar.GRACE_PERIOD();
+      return this.gracePeriod;
+    }
+
+    return this.gracePeriod;
+  }
+
+  async transferOwner(name, to, overrides = {}) {
+    try {
+      const nameArray = name.split('.');
+      const labelHash = labelhash(nameArray[0]);
+      const account = await getAccount();
+      const permanentRegistrar = this.permanentRegistrar;
+      const signer = await getSigner();
+      const Registrar = permanentRegistrar.connect(signer);
+      const networkId = await getNetworkId();
+
+      if (parseInt(networkId) > 1000) {
+        /* if private network */
+        const gas = await Registrar.estimateGas['safeTransferFrom(address,address,uint256)'](account, to, labelHash);
+        overrides = { ...overrides,
+          gasLimit: gas.toNumber() * 2
+        };
+      }
+
+      return Registrar['safeTransferFrom(address,address,uint256)'](account, to, labelHash, overrides);
+    } catch (e) {
+      console.log('Error calling transferOwner', e);
+    }
+  }
+
+  async reclaim(name, address, overrides = {}) {
+    try {
+      const nameArray = name.split('.');
+      const labelHash = labelhash(nameArray[0]);
+      const permanentRegistrar = this.permanentRegistrar;
+      const signer = await getSigner();
+      const Registrar = permanentRegistrar.connect(signer);
+      const networkId = await getNetworkId();
+
+      if (parseInt(networkId) > 1000) {
+        /* if private network */
+        const gas = await Registrar.estimateGas.reclaim(labelHash, address);
+        overrides = { ...overrides,
+          gasLimit: gas.toNumber() * 2
+        };
+      }
+
+      return Registrar.reclaim(labelHash, address, { ...overrides
+      });
+    } catch (e) {
+      console.log('Error calling reclaim', e);
+    }
+  }
+
+  async getRentPrice(name, duration) {
+    const permanentRegistrarController = this.permanentRegistrarController;
+    let price = await permanentRegistrarController.rentPrice(name, duration);
+    return price;
+  }
+
+  async getRentPriceAndPremium(name, duration, block = "latest") {
+    const permanentRegistrarController = this.permanentRegistrarController;
+    let price = await permanentRegistrarController.rentPrice(name, duration, {
+      blockTag: block
+    });
+    let premium = await permanentRegistrarController.rentPrice(name, 0, {
+      blockTag: block
+    });
+    return {
+      price,
+      premium
+    };
+  }
+
+  async getEthPrice() {
+    const oracleens = 'eth-usd.data.eth';
+
+    try {
+      const contractAddress = await this.getAddress(oracleens);
+      const oracle = await this.getOracle(contractAddress);
+      return (await oracle.latestAnswer()).toNumber() / 100000000;
+    } catch (e) {
+      console.warn(`Either ${oracleens} does not exist or Oracle is not throwing an error`, e);
+    }
+  }
+
+  async getPriceCurve() {
+    try {
+      return this.getText('eth', 'oracle');
+    } catch (e) {
+      // If the record is not set, fallback to linear.
+      return 'linear';
+    }
+  }
+
+  async getRentPrices(labels, duration) {
+    const pricesArray = await Promise.all(labels.map(label => {
+      return this.getRentPrice(label, duration);
+    }));
+    return pricesArray.reduce((a, c) => a.add(c));
+  }
+
+  async getMinimumCommitmentAge() {
+    const permanentRegistrarController = this.permanentRegistrarController;
+    return permanentRegistrarController.minCommitmentAge();
+  }
+
+  async getMaximumCommitmentAge() {
+    const permanentRegistrarController = this.permanentRegistrarController;
+    return permanentRegistrarController.maxCommitmentAge();
+  }
+
+  async makeCommitment(name, owner, secret = '') {
+    const permanentRegistrarControllerWithoutSigner = this.permanentRegistrarController;
+    const signer = await getSigner();
+    const permanentRegistrarController = permanentRegistrarControllerWithoutSigner.connect(signer);
+    const account = await getAccount();
+    const resolverAddr = await this.getAddress('resolver.eth');
+
+    if (parseInt(resolverAddr, 16) === 0) {
+      return permanentRegistrarController.makeCommitment(name, owner, secret);
+    } else {
+      return permanentRegistrarController.makeCommitmentWithConfig(name, owner, secret, resolverAddr, account);
+    }
+  }
+
+  async checkCommitment(label, secret = '') {
+    const permanentRegistrarControllerWithoutSigner = this.permanentRegistrarController;
+    const signer = await getSigner();
+    const permanentRegistrarController = permanentRegistrarControllerWithoutSigner.connect(signer);
+    const account = await getAccount();
+    const commitment = await this.makeCommitment(label, account, secret);
+    return await permanentRegistrarController.commitments(commitment);
+  }
+
+  async commit(label, secret = '') {
+    const permanentRegistrarControllerWithoutSigner = this.permanentRegistrarController;
+    const signer = await getSigner();
+    const permanentRegistrarController = permanentRegistrarControllerWithoutSigner.connect(signer);
+    const account = await getAccount();
+    const commitment = await this.makeCommitment(label, account, secret);
+    return permanentRegistrarController.commit(commitment);
+  }
+
+  async register(label, duration, secret) {
+    const permanentRegistrarControllerWithoutSigner = this.permanentRegistrarController;
+    const signer = await getSigner();
+    const permanentRegistrarController = permanentRegistrarControllerWithoutSigner.connect(signer);
+    const account = await getAccount();
+    const price = await this.getRentPrice(label, duration);
+    const priceWithBuffer = getBufferedPrice(price);
+    const resolverAddr = await this.getAddress('resolver.eth');
+
+    if (parseInt(resolverAddr, 16) === 0) {
+      const gasLimit = await this.estimateGasLimit(() => {
+        return permanentRegistrarController.estimateGas.register(label, account, duration, secret, {
+          value: priceWithBuffer
+        });
+      });
+      return permanentRegistrarController.register(label, account, duration, secret, {
+        value: priceWithBuffer,
+        gasLimit
+      });
+    } else {
+      const gasLimit = await this.estimateGasLimit(() => {
+        return permanentRegistrarController.estimateGas.registerWithConfig(label, account, duration, secret, resolverAddr, account, {
+          value: priceWithBuffer
+        });
+      });
+      return permanentRegistrarController.registerWithConfig(label, account, duration, secret, resolverAddr, account, {
+        value: priceWithBuffer,
+        gasLimit
+      });
+    }
+  }
+
+  async estimateGasLimit(cb) {
+    let gas = 0;
+
+    try {
+      gas = (await cb()).toNumber();
+    } catch (e) {
+      let matched = e.message.match(/\(supplied gas (.*)\)/) || e.message.match(/\(gas required exceeds allowance (.*)\)/);
+
+      if (matched) {
+        gas = parseInt(matched[1]);
+      }
+
+      console.log({
+        gas,
+        e,
+        matched
+      });
+    }
+
+    if (gas > 0) {
+      return gas + transferGasCost;
+    } else {
+      return gas;
+    }
+  }
+
+  async renew(label, duration) {
+    const permanentRegistrarControllerWithoutSigner = this.permanentRegistrarController;
+    const signer = await getSigner();
+    const permanentRegistrarController = permanentRegistrarControllerWithoutSigner.connect(signer);
+    const price = await this.getRentPrice(label, duration);
+    const priceWithBuffer = getBufferedPrice(price);
+    const gasLimit = await this.estimateGasLimit(() => {
+      return permanentRegistrarController.estimateGas.renew(label, duration, {
+        value: priceWithBuffer
+      });
+    });
+    return permanentRegistrarController.renew(label, duration, {
+      value: priceWithBuffer,
+      gasLimit
+    });
+  }
+
+  async renewAll(labels, duration) {
+    const bulkRenewalWithoutSigner = this.bulkRenewal;
+    const signer = await getSigner();
+    const bulkRenewal = bulkRenewalWithoutSigner.connect(signer);
+    const prices = await this.getRentPrices(labels, duration);
+    const pricesWithBuffer = getBufferedPrice(prices);
+    const gasLimit = await this.estimateGasLimit(() => {
+      return bulkRenewal.estimateGas.renewAll(labels, duration, {
+        value: pricesWithBuffer
+      });
+    });
+    return bulkRenewal.renewAll(labels, duration, {
+      value: pricesWithBuffer,
+      gasLimit
+    });
+  }
+
+  async releaseDeed(label) {
+    const legacyAuctionRegistrar = this.legacyAuctionRegistrar;
+    const signer = await getSigner();
+    const legacyAuctionRegistrarWithSigner = legacyAuctionRegistrar.connect(signer);
+    const hash = labelhash(label);
+    return legacyAuctionRegistrarWithSigner.releaseDeed(hash);
+  }
+
+  async isDNSRegistrar(parentOwner) {
+    const provider = await getProvider();
+    const registrar = await getDnsRegistrarContract({
+      parentOwner,
+      provider
+    });
+    let isDNSSECSupported = false,
+        isOld = false,
+        isNew = false;
+
+    try {
+      isOld = await registrar['supportsInterface(bytes4)'](dnssecClaimOldId);
+      isNew = await registrar['supportsInterface(bytes4)'](dnssecClaimNewId);
+    } catch (e) {
+      console.log({
+        e
+      });
+    }
+
+    isDNSSECSupported = isOld || isNew;
+    return isDNSSECSupported;
+  }
+
+  async selectDnsRegistrarContract({
+    parentOwner,
+    provider
+  }) {
+    let registrarContract = await getOldDnsRegistrarContract({
+      parentOwner,
+      provider
+    });
+    let isOld = false,
+        isNew = false;
+
+    try {
+      isOld = await registrarContract['supportsInterface(bytes4)'](dnssecClaimOldId);
+
+      if (!isOld) {
+        registrarContract = await getDnsRegistrarContract({
+          parentOwner,
+          provider
+        });
+        isNew = await registrarContract['supportsInterface(bytes4)'](dnssecClaimNewId);
+      }
+    } catch (e) {
+      console.log({
+        e
+      });
+    }
+
+    return {
+      registrarContract,
+      isOld
+    };
+  }
+
+  async getDNSEntry(name, parentOwner, owner) {
+    // Do not cache as it needs to be refetched on "Refresh"
+    const dnsRegistrar = {
+      stateError: null
+    };
+    const provider = await getProvider();
+    const {
+      isOld,
+      registrarContract
+    } = await this.selectDnsRegistrarContract({
+      parentOwner,
+      provider
+    });
+    const oracleAddress = await registrarContract.oracle();
+    const registrarjs = new DNSRegistrarJS(oracleAddress, isOld);
+
+    try {
+      const claim = await registrarjs.claim(name);
+      const result = claim.getResult();
+      dnsRegistrar.claim = claim;
+      dnsRegistrar.result = result;
+
+      if (claim && claim.isFound) {
+        dnsRegistrar.dnsOwner = claim.getOwner();
+
+        if (!dnsRegistrar.dnsOwner || parseInt(dnsRegistrar.dnsOwner) === 0) {
+          // Empty
+          dnsRegistrar.state = 8;
+        } else if (!utils.isAddress(dnsRegistrar.dnsOwner)) {
+          // Invalid record
+          dnsRegistrar.state = 4;
+        } else if (!owner || dnsRegistrar.dnsOwner.toLowerCase() === owner.toLowerCase()) {
+          // Ready to register
+          dnsRegistrar.state = 5;
         } else {
+          // Out of sync
           dnsRegistrar.state = 6;
         }
-      }
-    } else {
-      if (result.nsec) {
-        if (result.results.length === 4) {
-          // DNS entry does not exist
-          dnsRegistrar.state = 1;
-        } else if (result.results.length === 6) {
-          // DNS entry exists but _ens subdomain does not exist
-          dnsRegistrar.state = 3;
-        } else {
-          throw `DNSSEC results cannot be ${result.results.length}`;
-        }
       } else {
-        // DNSSEC is not enabled
-        dnsRegistrar.state = 2;
+        if (claim && claim.nsec) {
+          if (result.results.length === 4) {
+            // DNS entry does not exist
+            dnsRegistrar.state = 1;
+          } else if (result.results.length === 6) {
+            // DNS entry exists but _ens subdomain does not exist
+            dnsRegistrar.state = 3;
+          } else {
+            throw `DNSSEC results cannot be ${result.results.length}`;
+          }
+        } else {
+          // DNSSEC is not enabled
+          dnsRegistrar.state = 2;
+        }
       }
-    }
-  } catch (e) {
-    console.log('Problem fetching data from DNS', e); // Problem fetching data from DNS
+    } catch (e) {
+      console.log('Problem fetching data from DNS', e); // Problem fetching data from DNS
 
-    dnsRegistrar.state = 0;
+      dnsRegistrar.stateError = e.message;
+      dnsRegistrar.state = 0;
+    }
+
+    return dnsRegistrar;
   }
 
-  return dnsRegistrar;
-};
+  async submitProof(name, parentOwner) {
+    const provider = await getProvider();
+    const {
+      claim,
+      result
+    } = await this.getDNSEntry(name, parentOwner);
+    const owner = claim.getOwner();
+    const {
+      registrarContract: registrarWithoutSigner,
+      isOld
+    } = await this.selectDnsRegistrarContract({
+      parentOwner,
+      provider
+    });
+    const signer = await getSigner();
+    const user = await signer.getAddress();
+    const registrar = registrarWithoutSigner.connect(signer);
+    const proofData = await claim.getProofData();
+    const data = isOld ? proofData.data : proofData.rrsets.map(x => Object.values(x));
+    const proof = proofData.proof;
 
-const getEntry = async (name, tld = 'ewc') => {
-  const [{
-    ethRegistrar: AuctionRegistrar
-  }, {
-    permanentRegistrar: Registrar
-  }, {
-    permanentRegistrarController: RegistrarController
-  }] = await Promise.all([getLegacyAuctionRegistrar(tld), getPermanentRegistrar(tld), getPermanentRegistrarController(tld)]);
-  let [block, legacyEntry, permEntry] = await Promise.all([getBlock(), getLegacyEntry(AuctionRegistrar, name, tld), getPermanentEntry(Registrar, RegistrarController, name)]);
-  let ret = {
-    currentBlockDate: new Date(block.timestamp * 1000),
-    registrant: 0,
-    transferEndDate: null,
-    isNewRegistrar: false,
-    gracePeriodEndDate: null
-  };
-
-  if (permEntry) {
-    ret.available = permEntry.available;
-
-    if (permEntry.nameExpires) {
-      ret.expiryTime = permEntry.nameExpires;
-    }
-
-    if (permEntry.ownerOf) {
-      ret.registrant = permEntry.ownerOf;
-      ret.isNewRegistrar = true;
-    } else if (permEntry.nameExpires) {
-      const currentTime = new Date(ret.currentBlockDate);
-      const gracePeriodEndDate = new Date(currentTime.getTime() + permEntry.gracePeriod * 1000); // It is within grace period
-
-      if (permEntry.nameExpires < currentTime < gracePeriodEndDate) {
-        ret.isNewRegistrar = true;
-        ret.gracePeriodEndDate = gracePeriodEndDate;
+    if (data.length === 0) {
+      return registrar.claim(claim.encodedName, proof);
+    } else {
+      // Only available for the new DNSRegistrar
+      if (!isOld && owner === user) {
+        const resolverAddress = await this.getAddress('resolver.eth');
+        return registrar.proveAndClaimWithResolver(claim.encodedName, data, proof, resolverAddress, owner);
+      } else {
+        return registrar.proveAndClaim(claim.encodedName, data, proof);
       }
     }
   }
 
-  return { ...legacyEntry,
-    ...ret
-  };
-};
-
-const transferOwner = async (name, to, tld = 'ewc', overrides = {}) => {
-  try {
-    const nameArray = name.split('.');
-    const labelHash = labelhash(nameArray[0]);
+  async registerTestdomain(label) {
+    const provider = await getProvider();
+    const testAddress = await this.ENS.owner(namehash('test'));
+    const registrarWithoutSigner = getTestRegistrarContract({
+      address: testAddress,
+      provider
+    });
+    const signer = await getSigner();
+    const hash = labelhash(label);
     const account = await getAccount();
-    const {
-      permanentRegistrar
-    } = await getPermanentRegistrar(tld);
-    const signer = await getSigner();
-    const Registrar = permanentRegistrar.connect(signer);
-    const networkId = await getNetworkId();
+    const registrar = registrarWithoutSigner.connect(signer);
+    return registrar.register(hash, account);
+  }
 
-    if (!(parseInt(networkId) > 1000)) {
-      /* if private network */
-      const gas = await Registrar.estimate.safeTransferFrom(account, to, labelHash);
-      overrides = { ...overrides,
-        gasLimit: gas.toNumber() * 2
-      };
+  async expiryTimes(label) {
+    const provider = await getProvider();
+    const testAddress = await this.ENS.owner(namehash('test'));
+    const TestRegistrar = await getTestRegistrarContract({
+      address: testAddress,
+      provider
+    });
+    const hash = labelhash(label);
+    const result = await TestRegistrar.expiryTimes(hash);
+
+    if (result > 0) {
+      return new Date(result * 1000);
     }
-
-    return Registrar.safeTransferFrom(account, to, labelHash, overrides);
-  } catch (e) {
-    console.log('Error calling transferOwner', e);
   }
-};
 
-const reclaim = async (name, address, tld = 'ewc', overrides = {}) => {
-  try {
-    const nameArray = name.split('.');
-    const labelHash = labelhash(nameArray[0]);
-    const {
-      permanentRegistrar
-    } = await getPermanentRegistrar(tld);
-    const signer = await getSigner();
-    const Registrar = permanentRegistrar.connect(signer);
-    const networkId = await getNetworkId();
+}
 
-    if (!(parseInt(networkId) > 1000)) {
-      /* if private network */
-      const gas = await Registrar.estimate.reclaim(labelHash, address);
-      overrides = { ...overrides,
-        gasLimit: gas.toNumber() * 2
-      };
-    }
-
-    return Registrar.reclaim(labelHash, address, { ...overrides
-    });
-  } catch (e) {
-    console.log('Error calling reclaim', e);
-  }
-};
-
-const getRentPrice = async (name, duration, tld = 'ewc') => {
-  const {
-    permanentRegistrarController
-  } = await getPermanentRegistrarController(tld);
-  return permanentRegistrarController.rentPrice(name, duration);
-};
-
-const getMinimumCommitmentAge = async (tld = 'ewc') => {
-  const {
-    permanentRegistrarController
-  } = await getPermanentRegistrarController(tld);
-  return permanentRegistrarController.minCommitmentAge();
-};
-
-const makeCommitment = async (name, owner, secret = '', tld = 'ewc') => {
-  const {
-    permanentRegistrarController: permanentRegistrarControllerWithoutSigner
-  } = await getPermanentRegistrarController(tld);
-  const signer = await getSigner();
-  const permanentRegistrarController = permanentRegistrarControllerWithoutSigner.connect(signer);
-  const account = await getAccount();
-  const resolverAddr = await getAddress('resolver.' + tld);
-
-  if (!(parseInt(resolverAddr, 16) === 0)) {
-    return permanentRegistrarController.makeCommitment(name, owner, secret);
-  } else {
-    return permanentRegistrarController.makeCommitmentWithConfig(name, owner, secret, resolverAddr, account);
-  }
-};
-
-const commit = async (label, secret = '', tld = 'ewc') => {
-  const {
-    permanentRegistrarController: permanentRegistrarControllerWithoutSigner
-  } = await getPermanentRegistrarController(tld);
-  const signer = await getSigner();
-  const permanentRegistrarController = permanentRegistrarControllerWithoutSigner.connect(signer);
-  const account = await getAccount();
-  const commitment = await makeCommitment(label, account, secret, tld);
-  return permanentRegistrarController.commit(commitment);
-};
-
-const register = async (label, duration, secret, tld = 'ewc') => {
-  const {
-    permanentRegistrarController: permanentRegistrarControllerWithoutSigner
-  } = await getPermanentRegistrarController(tld);
-  const signer = await getSigner();
-  const permanentRegistrarController = permanentRegistrarControllerWithoutSigner.connect(signer);
-  const account = await getAccount();
-  const price = await getRentPrice(label, duration);
-  const resolverAddr = await getAddress('resolver.eth');
-
-  if (!(parseInt(resolverAddr, 16) === 0)) {
-    return permanentRegistrarController.register(label, account, duration, secret, {
-      value: price
-    });
-  } else {
-    return permanentRegistrarController.registerWithConfig(label, account, duration, secret, resolverAddr, account, {
-      value: price
-    });
-  }
-};
-
-const renew = async (label, duration, tld = 'ewc') => {
-  const {
-    permanentRegistrarController: permanentRegistrarControllerWithoutSigner
-  } = await getPermanentRegistrarController(tld);
-  const signer = await getSigner();
-  const permanentRegistrarController = permanentRegistrarControllerWithoutSigner.connect(signer);
-  const price = await getRentPrice(label, duration);
-  return permanentRegistrarController.renew(label, duration, {
-    value: price
+async function getEthResolver(ENS) {
+  const resolverAddr = await ENS.resolver(namehash('ewc'));
+  const provider = await getProvider();
+  return getResolverContract({
+    address: resolverAddr,
+    provider
   });
-};
+}
 
-const releaseDeed = async (label, tld = 'ewc') => {
-  const {
-    ethRegistrar
-  } = await getLegacyAuctionRegistrar(tld);
-  const signer = await getSigner();
-  const ethRegistrarWithSigner = ethRegistrar.connect(signer);
-  const hash = labelhash(label);
-  return ethRegistrarWithSigner.releaseDeed(hash);
-};
-
-const submitProof = async (name, parentOwner) => {
-  const {
-    claim,
-    result
-  } = await getDNSEntry(name, parentOwner);
-  const {
-    registrar: registrarWithoutSigner
-  } = await getDnsRegistrarContract(parentOwner);
-  const signer = await getSigner();
-  const registrar = registrarWithoutSigner.connect(signer);
-  const data = await claim.oracle.getAllProofs(result, {});
-  const allProven = await claim.oracle.allProven(result);
-
-  if (allProven) {
-    return registrar.claim(claim.encodedName, data[1]);
-  } else {
-    return registrar.proveAndClaim(claim.encodedName, data[0], data[1]);
-  }
-};
-
-export { getEntry, getDNSEntry, isDNSRegistrar, transferOwner, reclaim, getRentPrice, getMinimumCommitmentAge, makeCommitment, commit, register, renew, releaseDeed, submitProof };
+export async function setupRegistrar(registryAddress) {
+  const provider = await getProvider();
+  const ENS = getENSContract({
+    address: registryAddress,
+    provider
+  });
+  const Resolver = await getEthResolver(ENS);
+  let ethAddress = await ENS.owner(namehash('eth'));
+  let controllerAddress = await Resolver.interfaceImplementer(namehash('eth'), permanentRegistrarInterfaceId);
+  let legacyAuctionRegistrarAddress = await Resolver.interfaceImplementer(namehash('eth'), legacyRegistrarInterfaceId);
+  let bulkRenewalAddress = await Resolver.interfaceImplementer(namehash('eth'), bulkRenewalInterfaceId);
+  return new Registrar({
+    registryAddress,
+    legacyAuctionRegistrarAddress,
+    ethAddress,
+    controllerAddress,
+    bulkRenewalAddress,
+    provider
+  });
+}
