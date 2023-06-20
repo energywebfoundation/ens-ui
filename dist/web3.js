@@ -5,12 +5,31 @@ let signer;
 let readOnly = false;
 let requested = false;
 let address;
+let ewcENSAddress = '0x0A6d64413c07E10E890220BBE1c49170080C6Ca0';
 
 function getJsonRpcProvider(providerOrUrl, option = 'any') {
+  if (providerOrUrl === 'https://rpc.energyweb.org/') {
+    console.log("instantiating new provider from jsonrpc provider");
+    return new ethers.providers.JsonRpcProvider(providerOrUrl, {
+      chainId: 246,
+      name: 'ewc',
+      ensAddress: ewcENSAddress
+    });
+  }
+
   return new ethers.providers.JsonRpcProvider(providerOrUrl, option);
 }
 
 function getWeb3Provider(providerOrUrl, option = 'any') {
+  if (providerOrUrl === 'https://rpc.energyweb.org/') {
+    console.log("instantiating new provider with web3 provider");
+    return new ethers.providers.Web3Provider(providerOrUrl, {
+      chainId: 246,
+      name: 'ewc',
+      ensAddress: ewcENSAddress
+    });
+  }
+
   return new ethers.providers.Web3Provider(providerOrUrl, option);
 }
 
